@@ -1,0 +1,10 @@
+#!/bin/bash
+# chess-coach MCP server launcher; safe to run via symlink
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+exec "$DIR/.venv/bin/python" "$DIR/coach_mcp.py"

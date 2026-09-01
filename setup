@@ -1,0 +1,74 @@
+#!/bin/bash
+# chess-coach one-command setup: venv, deps, engine, token, self-check.
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$DIR"
+echo "chess-coach setup"
+echo
+
+command -v python3 >/dev/null || { echo "python3 is required first"; exit 1; }
+python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' \
+  || { echo "python 3.9 or newer is required"; exit 1; }
+if [ ! -d .venv ]; then
+  echo "creating Python environment..."
+  python3 -m venv .venv
+fi
+# urllib3 v2 needs OpenSSL 1.1.1+; macOS system Python links LibreSSL
+./.venv/bin/pip install --quiet --disable-pip-version-check chess requests 'urllib3<2'
+echo "[ ok ] python environment"
+
+if ! command -v stockfish >/dev/null; then
+  if command -v brew >/dev/null; then
+    read -r -p "Stockfish (the chess engine) is missing. Install via Homebrew? [Y/n] " a || a=y
+    if [ "$a" != "n" ] && [ "$a" != "N" ]; then brew install stockfish; fi
+  else
+    echo "[ !! ] install Stockfish with your package manager, then re-run ./setup"
+  fi
+fi
+command -v stockfish >/dev/null && echo "[ ok ] stockfish"
+
+if command -v claude >/dev/null; then
+  echo "[ ok ] claude CLI found (coach prose uses your Claude plan)"
+else
+  echo "[ !! ] Claude Code (claude CLI) not found - the coach needs it"
+fi
+
+TOKEN_URL='https://lichess.org/account/oauth/token/create?scopes[]=puzzle:read&description=chess-coach+companion'
+if [ -z "$LICHESS_TOKEN" ] && [ ! -f .lichess-token ]; then
+  echo
+  echo "Last step: a lichess API token (the right permissions come pre-ticked):"
+  echo "  $TOKEN_URL"
+  OPENER=$(command -v open || command -v xdg-open || true)
+  [ -n "$OPENER" ] && read -r -p "Open that page in your browser now? [Y/n] " a \
+    && { [ "$a" != "n" ] && [ "$a" != "N" ] && "$OPENER" "$TOKEN_URL"; }
+  read -r -p "Paste the token here (or press Enter to do it later): " tok || tok=""
+  if [ -n "$tok" ]; then
+    ( umask 077; printf '%s\n' "$tok" > .lichess-token )
+    echo "[ ok ] token saved to .lichess-token"
+  fi
+fi
+
+if command -v claude >/dev/null; then
+  echo
+  if claude mcp list 2>/dev/null | grep -q "^chess-coach:"; then
+    echo "[ ok ] chess-coach is already registered with Claude Code"
+  else
+    read -r -p "Register the coach with Claude Code now? [Y/n] " a || a=y
+    if [ "$a" != "n" ] && [ "$a" != "N" ]; then
+      claude mcp add --scope user chess-coach -- "$DIR/coach-mcp" \
+        && echo "[ ok ] registered with Claude Code"
+    fi
+  fi
+  mkdir -p "$HOME/.claude/skills"
+  ln -sfn "$DIR/skill/chess-coach" "$HOME/.claude/skills/chess-coach"
+  echo "[ ok ] coaching skill installed"
+else
+  echo "[ !! ] Claude Code (claude CLI) not found - install it, then re-run"
+  echo "       ./setup to connect the coach."
+fi
+
+echo
+./.venv/bin/python -c "import sys, json; import coach_mcp; sys.stdout = sys.__stdout__; print('self-check:', json.dumps(coach_mcp.tool_setup_check({})))"
+echo
+echo "Done. Open a NEW Claude session and ask: is my chess coach connected?"
+

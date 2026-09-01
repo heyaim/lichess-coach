@@ -1,0 +1,46 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.9"
+      - run: pip install chess requests
+      - run: python -m py_compile coach_mcp.py core.py debrief.py
+      - name: protocol smoke test
+        run: |
+          python - <<'EOF'
+          import json, subprocess, sys
+          p = subprocess.Popen([sys.executable, "coach_mcp.py"],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, text=True)
+          msgs = [
+              {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+               "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                          "clientInfo": {"name": "ci", "version": "0"}}},
+              {"jsonrpc": "2.0", "method": "notifications/initialized"},
+              {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+              {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+               "params": {"name": "setup_check", "arguments": {}}},
+          ]
+          for m in msgs:
+              p.stdin.write(json.dumps(m) + "\n")
+          p.stdin.flush()
+          replies = {}
+          for _ in range(3):
+              r = json.loads(p.stdout.readline())
+              replies[r["id"]] = r
+          tools = [t["name"] for t in replies[2]["result"]["tools"]]
+          assert len(tools) == 7, tools
+          check = json.loads(replies[3]["result"]["content"][0]["text"])
+          assert check["lichess_token"] is False
+          assert "scopes[]=puzzle:read" in check["how_to_get_token"]
+          p.stdin.close()
+          p.wait(timeout=10)
+          assert p.returncode == 0
+          print("smoke test passed:", len(tools), "tools, clean exit")
+          EOF

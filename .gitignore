@@ -1,0 +1,6 @@
+.venv/
+data/
+reports/
+__pycache__/
+.seen.json
+.lichess-token
