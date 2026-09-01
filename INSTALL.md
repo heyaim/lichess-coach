@@ -28,7 +28,7 @@ cd lichess-coach && ./setup
 Setup prompts for a lichess personal access token and opens the creation
 page with the required permission selected. The token grants read access
 to your puzzle activity. Games are fetched from lichess's public export.
-It is stored locally in `.lichess-token`
+The token is stored locally in `.lichess-token`
 (excluded from git) and can be revoked at
 lichess.org/account/oauth/token.
 

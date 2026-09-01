@@ -30,7 +30,6 @@ ENGINE_LOCK = threading.Lock()
 STATE_LOCK = threading.Lock()
 
 
-
 def get_token():
     tok = os.environ.get("LICHESS_TOKEN", "").strip()
     if tok:
@@ -42,7 +41,6 @@ def get_token():
     return None
 
 
-
 def api_headers(token, ndjson=False):
     h = {"User-Agent": debrief.USER_AGENT}
     if ndjson:
@@ -52,13 +50,11 @@ def api_headers(token, ndjson=False):
     return h
 
 
-
 REST_LOCK = threading.Lock()
 
 REST_MIN_GAP = 1.0
 
 _last_rest = [0.0]
-
 
 
 def rest_request(method, url, **kw):
@@ -77,13 +73,11 @@ def rest_request(method, url, **kw):
             time.sleep(61)  # lichess asks for a full minute after a 429
 
 
-
 def load_state():
     if os.path.exists(STATE_PATH):
         with open(STATE_PATH) as f:
             return json.load(f)
-    return {"last_puzzle_ms": 0, "done_games": []}
-
+    return {"last_puzzle_ms": 0}
 
 
 def save_state(state):
@@ -91,7 +85,6 @@ def save_state(state):
         os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
         with open(STATE_PATH, "w") as f:
             json.dump(state, f)
-
 
 
 def stats_record_attempt(state, themes, won):
@@ -107,12 +100,10 @@ def stats_record_attempt(state, themes, won):
             t["fails"] += 1
 
 
-
 def out_dir_for(username):
     d = os.path.join(PROJECT_DIR, "reports", username.lower())
     os.makedirs(d, exist_ok=True)
     return d
-
 
 
 def append_lesson(username, entry_md):
@@ -130,7 +121,6 @@ def append_lesson(username, entry_md):
     return path
 
 
-
 PUZZLE_URL_RE = re.compile(r"lichess\.org/training/(\w{5})")
 
 PUZZLE_ID_RE = re.compile(r"^\w{5}$")
@@ -141,7 +131,6 @@ def fetch_puzzle(puzzle_id):
                      headers=api_headers(None))
     r.raise_for_status()
     return r.json()
-
 
 
 def puzzle_digest(data, engine, per_move_time=1.0):
@@ -198,7 +187,6 @@ def puzzle_digest(data, engine, per_move_time=1.0):
     }
 
 
-
 def _tempting_alternative(board, solution_move, infos, engine, per_move_time):
     """The engine's second choice at the puzzle start: the natural-looking
     move a student most plausibly tried, with its refutation."""
@@ -224,7 +212,6 @@ def _tempting_alternative(board, solution_move, infos, engine, per_move_time):
         "refutation": refutation,
         "winning_chances_worse_by_pct": int(round(gap * 100)),
     }
-
 
 
 def quick_scan(fen):
@@ -255,7 +242,6 @@ def quick_scan(fen):
     }
 
 
-
 def seed_history(token, state):
     """One startup pull of recent puzzle activity: records theme stats
     from past attempts and marks the history as seen. A state file from
@@ -284,6 +270,3 @@ def seed_history(token, state):
                                       max(e.get("date", 0) for e in entries))
     save_state(state)
     return seeded
-
-
-
