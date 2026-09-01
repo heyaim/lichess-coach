@@ -243,6 +243,8 @@ def tool_explain_puzzle(args):
 
 def tool_explain_position(args):
     fen = str(args.get("fen", "")).strip()
+    if len(fen) > 100:
+        return {"error": "not a FEN: real ones are under 100 characters"}
     goal = args.get("goal")
     try:
         board = chess.Board(fen)
@@ -332,13 +334,20 @@ TOOLS = [
 
 
 def send(msg):
-    _PROTOCOL_OUT.write(json.dumps(msg) + "\n")
+    _PROTOCOL_OUT.write(json.dumps(msg, allow_nan=False) + "\n")
     _PROTOCOL_OUT.flush()
+
+
+def _reject_constant(name):
+    raise ValueError("non-finite number in message: " + name)
 
 
 def handle(msg):
     method = msg.get("method")
     mid = msg.get("id")
+    if mid is None and method != "notifications/initialized":
+        # no id means a notification: execute nothing, reply never
+        return
     if method == "initialize":
         send({"jsonrpc": "2.0", "id": mid, "result": {
             "protocolVersion": PROTOCOL_VERSION,
@@ -382,13 +391,16 @@ def main():
             if not line:
                 continue
             try:
-                msg = json.loads(line)
-            except ValueError:
+                msg = json.loads(line, parse_constant=_reject_constant)
+            except (ValueError, RecursionError):
                 continue
-            try:
-                handle(msg)
-            except Exception as e:
-                sys.stderr.write("chess-coach mcp error: {}\n".format(e))
+            for m in (msg if isinstance(msg, list) else [msg]):
+                if not isinstance(m, dict):
+                    continue
+                try:
+                    handle(m)
+                except Exception as e:
+                    sys.stderr.write("chess-coach mcp error: {}\n".format(e))
     finally:
         # atexit cannot do this: Python joins the engine's non-daemon
         # thread before atexit handlers run, so quit must happen here.

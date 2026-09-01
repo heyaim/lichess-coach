@@ -39,6 +39,13 @@ jobs:
           check = json.loads(replies[3]["result"]["content"][0]["text"])
           assert check["lichess_token"] is False
           assert "scopes[]=puzzle:read" in check["how_to_get_token"]
+          p.stdin.write("[" * 1001 + "]" * 1001 + "\n")
+          p.stdin.write('{"jsonrpc":"2.0","id":9,"method":"ping"}\n')
+          p.stdin.write('{"jsonrpc":"2.0","id":NaN,"method":"ping"}\n')
+          p.stdin.write('{"jsonrpc":"2.0","id":10,"method":"ping"}\n')
+          p.stdin.flush()
+          assert json.loads(p.stdout.readline())["id"] == 9
+          assert json.loads(p.stdout.readline())["id"] == 10
           p.stdin.close()
           p.wait(timeout=10)
           assert p.returncode == 0
