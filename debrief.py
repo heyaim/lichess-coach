@@ -41,7 +41,7 @@ import chess.pgn
 import requests
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-USER_AGENT = "lichess-coach/1.1.0 (github.com/heyaim/lichess-coach)"
+USER_AGENT = "lichess-coach/1.1.1 (github.com/heyaim/lichess-coach)"
 LICHESS_API = "https://lichess.org/api/games/user/{user}"
 
 # lichess winning-chances model: cp (White POV) -> [0, 1] for White.

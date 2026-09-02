@@ -135,6 +135,81 @@ class RecentActivityTests(unittest.TestCase):
         self.assertIn("error", self.call({"oops": 1}))
 
 
+class FairPlayTests(unittest.TestCase):
+    AFTER_E4_E5 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e5 0 2"
+    AFTER_E4_E5_NF3 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+
+    def setUp(self):
+        coach_mcp._live_cache["at"] = 0.0
+        coach_mcp._live_cache["games"] = []
+
+    def playing(self, ai=None, fen=None, empty=False):
+        if empty:
+            return {"nowPlaying": []}
+        opp = {"id": "rival", "username": "rival"}
+        if ai:
+            opp["ai"] = ai
+        return {"nowPlaying": [{"gameId": "g1", "fen": fen or self.AFTER_E4_E5,
+                                "opponent": opp}]}
+
+    def explain(self, fen, playing_resp):
+        with mock.patch.object(coach_mcp, "get_engine", return_value=None), \
+                mock.patch.object(core, "get_token", return_value="t"), \
+                mock.patch.object(core, "rest_request", return_value=playing_resp):
+            return coach_mcp.tool_explain_position({"fen": fen})
+
+    def test_refuses_the_live_position_of_a_game_against_a_person(self):
+        out = self.explain(self.AFTER_E4_E5, FakeResp(200, "", self.playing()))
+        self.assertIn("still in progress", out.get("error", ""))
+        self.assertIn("rival", out["error"])
+
+    def test_refuses_a_crazyhouse_position_by_its_placement(self):
+        pocket_fen = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR[Pp] w KQkq - 0 2"
+        out = self.explain(self.AFTER_E4_E5, FakeResp(200, "", self.playing(fen=pocket_fen)))
+        self.assertIn("still in progress", out.get("error", ""))
+
+    def test_refuses_positions_one_move_ahead_of_the_live_one(self):
+        out = self.explain(self.AFTER_E4_E5_NF3, FakeResp(200, "", self.playing()))
+        self.assertIn("still in progress", out.get("error", ""))
+
+    def test_allows_other_positions_computer_games_and_no_games(self):
+        elsewhere = "6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1"
+        self.assertNotIn("error", self.explain(elsewhere, FakeResp(200, "", self.playing())))
+        self.setUp()
+        self.assertNotIn("error", self.explain(self.AFTER_E4_E5, FakeResp(200, "", self.playing(ai=2))))
+        self.setUp()
+        self.assertNotIn("error", self.explain(self.AFTER_E4_E5, FakeResp(200, "", self.playing(empty=True))))
+
+    def test_fails_closed_when_the_check_cannot_complete(self):
+        out = self.explain(self.AFTER_E4_E5, FakeResp(429))
+        self.assertIn("could not confirm", out.get("error", ""))
+        self.assertEqual(coach_mcp._live_cache["at"], 0.0)  # nothing cached
+
+    def test_recent_games_labels_status_and_reports_live_opponents(self):
+        game = {"id": "g1", "status": "started", "moves": "e4 e5", "createdAt": 1756800000000,
+                "speed": "rapid", "players": {"white": {"user": {"id": "me", "name": "me"}},
+                                              "black": {"user": {"id": "rival", "name": "rival"}}}}
+        bot_game = dict(game, id="g2", status="resign",
+                        players={"white": {"user": {"id": "me", "name": "me"}},
+                                 "black": {"aiLevel": 3}})
+        export = FakeResp(200, ndjson([game, bot_game]))
+        playing = FakeResp(200, "", self.playing())
+
+        def route(method, url, **kw):
+            if url.endswith("/account/playing"):
+                self.assertEqual(kw.get("params"), {"nb": 50})
+                return playing
+            return export
+
+        with mock.patch.object(coach_mcp, "get_account", return_value={"id": "me", "username": "me"}), \
+                mock.patch.object(core, "get_token", return_value="t"), \
+                mock.patch.object(core, "rest_request", side_effect=route):
+            out = coach_mcp.tool_recent_games({})
+        self.assertEqual([(g["status"], g["vs_computer"]) for g in out["games"]],
+                         [("in progress", False), ("finished", True)])
+        self.assertEqual(out["in_progress_against_people"], ["rival"])
+
+
 class DashboardTests(unittest.TestCase):
     def test_orders_themes_by_performance_and_reads_replay_wins(self):
         data = {"global": {"nb": 10, "firstWins": 7, "replayWins": 2, "performance": 900},

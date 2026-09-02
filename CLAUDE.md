@@ -30,8 +30,10 @@ user test in a new session.
 
 ## Invariants
 
-- Fair play: `analyze_game` refuses in-progress games. Keep it that way,
-  and never add features that assist ongoing games against people.
+- Fair play: `analyze_game` refuses in-progress games, and
+  `explain_position` refuses the current position of a game in progress
+  against a person. Keep both, and never add features that assist ongoing
+  games against people.
 - Lichess API: every lichess call follows the same rules: one request at
   a time, a proper User-Agent, and the one-minute wait after a 429. The
   MCP server uses `rest_request` in `core.py`, and the CLI fetch in

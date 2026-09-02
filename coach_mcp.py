@@ -25,7 +25,7 @@ import debrief
 _PROTOCOL_OUT = sys.stdout
 sys.stdout = sys.stderr
 
-SERVER_INFO = {"name": "chess-coach", "version": "1.1.0"}
+SERVER_INFO = {"name": "chess-coach", "version": "1.1.1"}
 PROTOCOL_VERSION = "2024-11-05"
 
 _engine = None
@@ -123,7 +123,7 @@ def tool_recent_games(args):
     r = core.rest_request(
         "GET", core.API + "/api/games/user/" + acct["username"],
         params={"max": limit, "opening": "true",
-                "moves": "true"},
+                "moves": "true", "ongoing": "true"},
         headers=core.api_headers(token, ndjson=True))
     if r.status_code != 200:
         return {"error": "lichess returned HTTP {}".format(r.status_code)}
@@ -139,8 +139,9 @@ def tool_recent_games(args):
         opp = g["players"]["black" if me_white else "white"]
         games.append({
             "game_id": g["id"],
-            "when": time.strftime("%Y-%m-%d %H:%M",
-                                  time.localtime(g["createdAt"] / 1000)),
+            "when": (time.strftime("%Y-%m-%d %H:%M",
+                                   time.localtime(g["createdAt"] / 1000))
+                     if g.get("createdAt") else None),
             "my_color": "white" if me_white else "black",
             "opponent": opp.get("user", {}).get("name")
             or ("Stockfish level {}".format(opp["aiLevel"])
@@ -149,12 +150,20 @@ def tool_recent_games(args):
             "winner": g.get("winner", "draw/none"),
             "opening": (g.get("opening") or {}).get("name"),
             "plies": len(g.get("moves", "").split()),
+            "status": ("in progress" if g.get("status") in ("created", "started")
+                       else "finished"),
+            "vs_computer": "aiLevel" in opp,
         })
+    try:
+        live = [g["opponent"] for g in live_human_games()]
+    except (RuntimeError, ValueError):
+        live = "unknown (could not check)"
     if not games:
-        return {"games": [], "note": "no games on this account yet - puzzles "
-                "only. A first casual game vs the computer would give the "
-                "coach real material."}
-    return {"games": games}
+        return {"games": [], "in_progress_against_people": live,
+                "note": "no games on this account yet - puzzles only. A first "
+                "casual game vs the computer would give the coach real "
+                "material."}
+    return {"games": games, "in_progress_against_people": live}
 
 
 def tool_analyze_game(args):
@@ -262,6 +271,53 @@ def tool_explain_puzzle(args):
     return digest
 
 
+_live_cache = {"at": 0.0, "games": []}
+
+
+def live_human_games():
+    """Positions of the student's games in progress against people, from
+    lichess's own list of ongoing games, cached for a minute. Lichess forbids
+    outside help during those games, so position analysis checks here first.
+    A check that cannot complete raises, and the caller fails closed."""
+    if time.time() - _live_cache["at"] < 60:
+        return _live_cache["games"]
+    token = core.get_token()
+    if not token:
+        return []
+    try:
+        r = core.rest_request("GET", core.API + "/api/account/playing",
+                              params={"nb": 50},
+                              headers=core.api_headers(token))
+    except core.requests.RequestException as e:
+        raise RuntimeError("could not confirm you have no game in progress "
+                           "({}); try again in a minute".format(type(e).__name__))
+    if r.status_code != 200:
+        raise RuntimeError("could not confirm you have no game in progress "
+                           "(lichess HTTP {}); try again in a minute"
+                           .format(r.status_code))
+    games = []
+    for g in (r.json().get("nowPlaying") or []):
+        opp = g.get("opponent") or {}
+        fen = g.get("fen")
+        if opp.get("ai") or not fen:
+            continue
+        placements = {fen.split()[0].split("[")[0]}  # drop crazyhouse pockets
+        try:
+            board = chess.Board(fen)
+            for move in list(board.legal_moves):
+                board.push(move)
+                placements.add(board.board_fen())
+                board.pop()
+        except ValueError:
+            pass
+        games.append({"game_id": g.get("gameId"),
+                      "opponent": opp.get("username") or "a person",
+                      "placements": placements})
+    _live_cache["at"] = time.time()
+    _live_cache["games"] = games
+    return games
+
+
 def tool_explain_position(args):
     fen = str(args.get("fen", "")).strip()
     if len(fen) > 100:
@@ -271,6 +327,16 @@ def tool_explain_position(args):
         board = chess.Board(fen)
     except ValueError as e:
         return {"error": "bad FEN: {}".format(e)}
+    try:
+        live = live_human_games()
+    except RuntimeError as e:
+        return {"error": str(e)}
+    for g in live:
+        if board.board_fen() in g["placements"]:
+            return {"error": "this position is from your game against {}, which "
+                    "is still in progress. Lichess fair play forbids outside "
+                    "help during games against people; ask again when it "
+                    "ends.".format(g["opponent"])}
     out = {"fen": fen,
            "side_to_move": "white" if board.turn == chess.WHITE else "black",
            "explore": debrief.analysis_link(fen)}

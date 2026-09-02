@@ -53,7 +53,8 @@ plan. No accounts, no server, nothing hosted.
 
 Lichess forbids outside assistance during games. The coach analyzes
 finished games and reviews your puzzle history. The analysis tool
-refuses games that are still in progress.
+refuses games that are still in progress, and position analysis refuses
+the current position of any game against a person.
 
 ## License
 
