@@ -93,6 +93,8 @@ class FailedPuzzlesTests(unittest.TestCase):
         by_id = {f["id"]: f for f in out["failed_puzzles"]}
         self.assertTrue(by_id["AAAAA"]["solved_since"])
         self.assertFalse(by_id["BBBBB"]["solved_since"])
+        self.assertEqual(out["themes_among_fails"],
+                         [{"theme": "fork", "misses": 1}, {"theme": "pin", "misses": 1}])
 
     def test_repeat_fails_dedupe_to_newest_and_bad_lines_are_skipped(self):
         entries = [{"date": 50, "win": False, "puzzle": {"id": "CCCCC", "themes": []}},
@@ -100,6 +102,12 @@ class FailedPuzzlesTests(unittest.TestCase):
         out = self.call(ndjson(entries) + "\n{not json\n")
         self.assertEqual(out["total_recorded_fails"], 1)
         self.assertEqual(len(out["failed_puzzles"]), 1)
+
+    def test_null_themes_are_tolerated(self):
+        entries = [{"date": 9, "win": False, "puzzle": {"id": "DDDDD", "themes": None}}]
+        out = self.call(ndjson(entries))
+        self.assertEqual(out["failed_puzzles"][0]["themes"], [])
+        self.assertEqual(out["themes_among_fails"], [])
 
     def test_bad_max_is_a_plain_error(self):
         with mock.patch.object(core, "get_token", return_value="t"):

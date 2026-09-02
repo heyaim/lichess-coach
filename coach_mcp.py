@@ -331,12 +331,18 @@ def tool_failed_puzzles(args):
                 "id": pid,
                 "failed_on": time.strftime("%Y-%m-%d",
                                            time.gmtime(e.get("date", 0) / 1000)),
-                "themes": pz.get("themes", []),
+                "themes": pz.get("themes") or [],
                 "attempt_url": "https://lichess.org/training/" + pid,
                 "solved_since": pid in solved_later,
             }
     out = list(fails.values())[:limit]
+    theme_counts = {}
+    for f in fails.values():
+        for t in f["themes"]:
+            theme_counts[t] = theme_counts.get(t, 0) + 1
+    top_themes = sorted(theme_counts.items(), key=lambda kv: -kv[1])[:10]
     return {"failed_puzzles": out, "total_recorded_fails": len(fails),
+            "themes_among_fails": [{"theme": t, "misses": n} for t, n in top_themes],
             "note": "newest first, from the most recent 1000 recorded "
                     "attempts; use explain_puzzle on an id for the "
                     "engine-verified walkthrough"}
