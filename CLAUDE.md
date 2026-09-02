@@ -23,6 +23,8 @@ user test in a new session.
 - `debrief.py` - the game analysis engine.
 - `skill/chess-coach/SKILL.md` - coaching persona, symlinked into
   `~/.claude/skills/`.
+- `tests/` - unit tests for request pacing, attempt counting, and the
+  tools that parse lichess responses (standard library only).
 - `data/`, `reports/`, `.lichess-token` - user data; gitignored, never
   commit or overwrite.
 
@@ -42,6 +44,7 @@ user test in a new session.
 
 ## Checks
 
-`./.venv/bin/python -m py_compile coach_mcp.py core.py debrief.py` must
-pass. Protocol changes: test with a stdin/stdout JSON-RPC harness
-(initialize, tools/list, tools/call) before shipping.
+`./.venv/bin/python -m py_compile coach_mcp.py core.py debrief.py` and
+`./.venv/bin/python -m unittest discover -s tests` must both pass.
+Protocol changes: test with a stdin/stdout JSON-RPC harness (initialize,
+tools/list, tools/call) before shipping.

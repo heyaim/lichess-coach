@@ -66,8 +66,13 @@ def rest_request(method, url, **kw):
                 time.sleep(wait)
             try:
                 r = requests.request(method, url, **kw)
-            finally:
+            except (requests.ConnectionError, requests.Timeout):
                 _last_rest[0] = time.monotonic()
+                if attempt == 2:
+                    raise
+                time.sleep(1)
+                continue
+            _last_rest[0] = time.monotonic()
             if r.status_code != 429 or attempt == 2:
                 return r
             time.sleep(61)  # lichess asks for a full minute after a 429

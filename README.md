@@ -2,8 +2,8 @@
 
 [![ci](https://github.com/heyaim/lichess-coach/actions/workflows/ci.yml/badge.svg)](https://github.com/heyaim/lichess-coach/actions/workflows/ci.yml)
 
-lichess-coach links Claude to your lichess account so Claude can coach you
-on your games, your puzzles, and what to work on next.
+lichess-coach links Claude to your lichess account so Claude can coach
+you on your games and puzzles, showing you where you can improve.
 
 - "What happened in my last game?" - it fetches the game, checks every
   move with Stockfish (the engine lichess uses), and tells you the story:
@@ -15,6 +15,10 @@ on your games, your puzzles, and what to work on next.
 - "What should I practice?" - it names your weakest patterns from your
   performance and links you to practice on lichess, including replaying
   the exact puzzles you failed, in lichess's normal puzzle screen.
+- "What have I done this week?" - your daily activity: puzzle volume
+  including replays, practice sessions by name, and Puzzle Storm.
+- "Let's work on the puzzles I missed." - it pulls your missed puzzles
+  and walks them with you one at a time, hints first.
 - "Why does this puzzle move work?" - a walkthrough of any lichess puzzle,
   including why the tempting wrong move fails.
 - Show it any position, as a screenshot or in chess notation. Once the

@@ -25,7 +25,7 @@ import debrief
 _PROTOCOL_OUT = sys.stdout
 sys.stdout = sys.stderr
 
-SERVER_INFO = {"name": "chess-coach", "version": "1.0.0"}
+SERVER_INFO = {"name": "chess-coach", "version": "1.1.0"}
 PROTOCOL_VERSION = "2024-11-05"
 
 _engine = None
@@ -40,6 +40,20 @@ def get_engine():
         if path:
             _engine = chess.engine.SimpleEngine.popen_uci(path)
     return _engine
+
+
+def _reset_engine():
+    global _engine
+    _engine = None
+
+
+def _int_arg(args, key, default, lo, hi):
+    """Integer argument clamped to [lo, hi]; a non-number raises ValueError
+    with a plain message for the caller to return."""
+    try:
+        return max(lo, min(int(args.get(key, default)), hi))
+    except (TypeError, ValueError):
+        raise ValueError("{} must be a whole number".format(key))
 
 
 def get_account():
@@ -102,9 +116,13 @@ def tool_recent_games(args):
     if not acct:
         return {"error": "no lichess account connected; run setup_check"}
     token = core.get_token()
+    try:
+        limit = _int_arg(args, "max", 5, 1, 100)
+    except ValueError as e:
+        return {"error": str(e)}
     r = core.rest_request(
         "GET", core.API + "/api/games/user/" + acct["username"],
-        params={"max": int(args.get("max", 5)), "opening": "true",
+        params={"max": limit, "opening": "true",
                 "moves": "true"},
         headers=core.api_headers(token, ndjson=True))
     if r.status_code != 200:
@@ -113,7 +131,10 @@ def tool_recent_games(args):
     for line in r.text.splitlines():
         if not line.strip():
             continue
-        g = json.loads(line)
+        try:
+            g = json.loads(line)
+        except ValueError:
+            continue
         me_white = g["players"]["white"].get("user", {}).get("id") == acct["id"]
         opp = g["players"]["black" if me_white else "white"]
         games.append({
@@ -278,6 +299,144 @@ def tool_explain_position(args):
     return out
 
 
+def tool_failed_puzzles(args):
+    token = core.get_token()
+    if not token:
+        return {"error": "no lichess token; run setup_check"}
+    try:
+        limit = _int_arg(args, "max", 30, 1, 100)
+    except ValueError as e:
+        return {"error": str(e)}
+    r = core.rest_request("GET", core.API + "/api/puzzle/activity",
+                          params={"max": 1000},
+                          headers=core.api_headers(token, ndjson=True))
+    if r.status_code != 200:
+        return {"error": "lichess returned HTTP {}".format(r.status_code)}
+    fails, solved_later = {}, set()
+    for line in r.text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        pz = e.get("puzzle") or {}
+        pid = pz.get("id")
+        if not pid:
+            continue
+        if e.get("win"):
+            solved_later.add(pid)
+        elif pid not in fails:
+            fails[pid] = {
+                "id": pid,
+                "failed_on": time.strftime("%Y-%m-%d",
+                                           time.gmtime(e.get("date", 0) / 1000)),
+                "themes": pz.get("themes", []),
+                "attempt_url": "https://lichess.org/training/" + pid,
+                "solved_since": pid in solved_later,
+            }
+    out = list(fails.values())[:limit]
+    return {"failed_puzzles": out, "total_recorded_fails": len(fails),
+            "note": "newest first, from the most recent 1000 recorded "
+                    "attempts; use explain_puzzle on an id for the "
+                    "engine-verified walkthrough"}
+
+
+def tool_recent_activity(args):
+    acct = get_account()
+    if not acct:
+        return {"error": "no lichess account connected; run setup_check"}
+    r = core.rest_request("GET", core.API + "/api/user/" + acct["username"] + "/activity",
+                          headers=core.api_headers(core.get_token()))
+    if r.status_code != 200:
+        return {"error": "lichess returned HTTP {}".format(r.status_code)}
+    try:
+        feed = r.json()
+    except ValueError:
+        feed = None
+    if not isinstance(feed, list):
+        return {"error": "unexpected activity response from lichess"}
+    days = []
+    for d in feed:
+        if not isinstance(d, dict):
+            continue
+        day = {"date": time.strftime(
+            "%Y-%m-%d",
+            time.gmtime((d.get("interval") or {}).get("start", 0) / 1000))}
+        score = (d.get("puzzles") or {}).get("score") or {}
+        if score:
+            rp = score.get("rp") or {}
+            day["puzzles"] = {
+                "attempts": score.get("win", 0) + score.get("loss", 0),
+                "wins": score.get("win", 0),
+                "losses": score.get("loss", 0),
+                "rating_before": rp.get("before"),
+                "rating_after": rp.get("after"),
+            }
+        practice = d.get("practice")
+        if practice:
+            day["practice"] = [
+                {"name": p.get("name"), "positions": p.get("nbPositions"),
+                 "url": p.get("url")} for p in practice]
+        if d.get("storm"):
+            day["storm"] = d["storm"]
+        if d.get("games"):
+            day["games"] = d["games"]
+        days.append(day)
+    return {"days": days,
+            "note": "daily puzzle totals include unrated and replayed attempts; "
+                    "the per-theme statistics in puzzle_report track rated "
+                    "solves only"}
+
+
+def tool_puzzle_dashboard(args):
+    token = core.get_token()
+    if not token:
+        return {"error": "no lichess token; run setup_check"}
+    try:
+        days = _int_arg(args, "days", 30, 1, 365)
+    except ValueError as e:
+        return {"error": str(e)}
+    r = core.rest_request("GET", core.API + "/api/puzzle/dashboard/{}".format(days),
+                          headers=core.api_headers(token))
+    if r.status_code != 200:
+        return {"error": "lichess returned HTTP {}".format(r.status_code)}
+    try:
+        data = r.json()
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        return {"error": "unexpected dashboard response from lichess"}
+
+    def trim(res):
+        res = res if isinstance(res, dict) else {}
+        return {"attempts": res.get("nb", 0),
+                "first_try_wins": res.get("firstWins", 0),
+                "replay_wins": res.get("replayWins", 0),
+                "performance": res.get("performance"),
+                "avg_puzzle_rating": res.get("puzzleRatingAvg")}
+
+    themes = []
+    for key, t in (data.get("themes") or {}).items():
+        if not isinstance(t, dict):
+            continue
+        row = {"theme": key, "name": t.get("theme")}
+        row.update(trim(t.get("results")))
+        themes.append(row)
+    rated = sorted((t for t in themes if t["performance"] is not None),
+                   key=lambda t: t["performance"])
+    return {
+        "days": days,
+        "overall": trim(data.get("global")),
+        "weakest_by_performance": rated[:8],
+        "strongest_by_performance": list(reversed(rated[-5:])),
+        "dashboard_url": "https://lichess.org/training/dashboard/{}".format(days),
+        "note": "lichess's own dashboard figures; replay_wins counts misses "
+                "later solved in replay, the one place replay outcomes are "
+                "recorded",
+    }
+
+
 def tool_save_note(args):
     title = str(args.get("title", "note")).strip()[:80]
     text = str(args.get("text", "")).strip()[:4000]
@@ -309,6 +468,26 @@ TOOLS = [
     ("puzzle_report", "The student's puzzle training report: volume, solve "
      "rate, weakest and strongest themes. Syncs latest activity first.",
      {"type": "object", "properties": {}}, tool_puzzle_report),
+    ("puzzle_dashboard", "Lichess's own puzzle dashboard for the last N "
+     "days: per-theme performance, first-try wins, and replay wins, the one "
+     "record of how replays went. Weakest and strongest themes by "
+     "performance.",
+     {"type": "object", "properties": {
+         "days": {"type": "integer",
+                  "description": "window in days (default 30)"}}},
+     tool_puzzle_dashboard),
+    ("recent_activity", "The student's recent lichess activity by day: total "
+     "puzzle attempts including unrated replays, practice sessions by name, "
+     "Puzzle Storm, and games. Broader than puzzle_report's rated-only "
+     "record.",
+     {"type": "object", "properties": {}}, tool_recent_activity),
+    ("failed_puzzles", "The student's recently failed puzzles with ids, "
+     "themes, and links: the material behind lichess's replay queue. Use "
+     "explain_puzzle on an id to coach one.",
+     {"type": "object", "properties": {
+         "max": {"type": "integer",
+                 "description": "how many fails to return (default 30)"}}},
+     tool_failed_puzzles),
     ("explain_puzzle", "Engine-verified digest of a lichess puzzle: solution "
      "with per-move facts, themes, and the tempting wrong move refuted.",
      {"type": "object", "required": ["puzzle"], "properties": {
@@ -373,7 +552,11 @@ def handle(msg):
                 "isError": True}})
             return
         try:
-            result = fn(args)
+            try:
+                result = fn(args)
+            except chess.engine.EngineTerminatedError:
+                _reset_engine()  # Stockfish died; respawn on the retry
+                result = fn(args)
         except Exception as e:  # tool errors go back as data, never crash
             result = {"error": "{}: {}".format(type(e).__name__, str(e)[:200])}
         send({"jsonrpc": "2.0", "id": mid, "result": {

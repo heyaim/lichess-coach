@@ -41,7 +41,7 @@ import chess.pgn
 import requests
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-USER_AGENT = "lichess-coach/1.0.0 (github.com/heyaim/lichess-coach)"
+USER_AGENT = "lichess-coach/1.1.0 (github.com/heyaim/lichess-coach)"
 LICHESS_API = "https://lichess.org/api/games/user/{user}"
 
 # lichess winning-chances model: cp (White POV) -> [0, 1] for White.
@@ -418,6 +418,8 @@ def analyze_game(game, engine, scan_time, deep_time):
         b = chess.Board(mo["fen_before"])
         try:
             infos = engine.analyse(b, chess.engine.Limit(time=deep_time), multipv=2)
+        except chess.engine.EngineTerminatedError:
+            raise  # a dead engine must surface so the server can respawn it
         except chess.engine.EngineError:
             continue
         best = infos[0]
